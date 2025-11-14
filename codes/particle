@@ -1,0 +1,108 @@
+import random
+import numpy as np
+from sklearn.datasets import load_iris
+from sklearn.model_selection import train_test_split
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.metrics import accuracy_score
+
+# ---------------------------
+# LOAD DATASET (You can replace)
+# ---------------------------
+data = load_iris()
+X = data.data
+y = data.target
+num_features = X.shape[1]
+
+# ---------------------------
+# OBJECTIVE FUNCTION (Feature Selection)
+# ---------------------------
+def evaluate(feature_mask, lam=0.01):
+    # if all zeros → invalid → return very low score
+    if sum(feature_mask) == 0:
+        return -999
+
+    selected = [i for i in range(num_features) if feature_mask[i] == 1]
+    X_sel = X[:, selected]
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        X_sel, y, test_size=0.3, random_state=42
+    )
+
+    model = KNeighborsClassifier()
+    model.fit(X_train, y_train)
+    pred = model.predict(X_test)
+    acc = accuracy_score(y_test, pred)
+
+    # fitness = accuracy − penalty(number of features)
+    return acc - lam * sum(feature_mask)
+
+# ---------------------------
+# PSO Hyperparameters
+# ---------------------------
+NUM_PARTICLES = 10
+ITERATIONS = 50
+INERTIA = 0.7
+COG = 1.5
+SOC = 1.5
+
+# ---------------------------
+# PARTICLE INITIALIZATION
+# ---------------------------
+positions = [[random.randint(0, 1) for _ in range(num_features)]
+             for _ in range(NUM_PARTICLES)]
+
+vels = [[random.uniform(-1, 1) for _ in range(num_features)]
+        for _ in range(NUM_PARTICLES)]
+
+# ---------------------------
+# BESTS INIT
+# ---------------------------
+personal_best_pos = [p[:] for p in positions]
+personal_best_score = [evaluate(p) for p in positions]
+
+best_idx = personal_best_score.index(max(personal_best_score))
+global_best_pos = personal_best_pos[best_idx][:]
+global_best_score = personal_best_score[best_idx]
+
+# ---------------------------
+# PSO MAIN LOOP
+# ---------------------------
+for step in range(ITERATIONS):
+    for i in range(NUM_PARTICLES):
+        for d in range(num_features):
+            r1, r2 = random.random(), random.random()
+
+            vels[i][d] = (
+                INERTIA * vels[i][d]
+                + COG * r1 * (personal_best_pos[i][d] - positions[i][d])
+                + SOC * r2 * (global_best_pos[d] - positions[i][d])
+            )
+
+            # Update using sigmoid
+            sigmoid = 1 / (1 + np.exp(-vels[i][d]))
+            positions[i][d] = 1 if random.random() < sigmoid else 0
+
+        # Evaluate fitness
+        score = evaluate(positions[i])
+
+        # Update personal best
+        if score > personal_best_score[i]:
+            personal_best_score[i] = score
+            personal_best_pos[i] = positions[i][:]
+
+            # Update global best
+            if score > global_best_score:
+                global_best_score = score
+                global_best_pos = positions[i][:]
+
+    print(f"Iter {step+1}/{ITERATIONS} → Best Score = {global_best_score:.4f}  Features = {global_best_pos}")
+
+# ---------------------------
+# FINAL RESULTS
+# ---------------------------
+selected_features = [i for i in range(num_features) if global_best_pos[i] == 1]
+
+print("\n✅ FEATURE SELECTION COMPLETE")
+print("Best Feature Mask:", global_best_pos)
+print("Selected Feature Indexes:", selected_features)
+print(f"Final Fitness Score: {global_best_score:.4f}")
