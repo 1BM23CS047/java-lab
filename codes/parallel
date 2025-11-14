@@ -1,0 +1,91 @@
+import numpy as np
+from joblib import Parallel, delayed
+
+# ------------------------------
+# Stock Index Data (replace with real values)
+# ------------------------------
+prices = np.array([
+    19700, 19750, 19820, 19780, 19910, 20020, 20100,
+    20250, 20310, 20400, 20500, 20520, 20600
+])
+
+# Compute trend labels (+1 for up, -1 for down)
+actual_trend = np.sign(np.diff(prices))
+
+
+# --------------------------------
+# ❗ NEW Objective Function
+# --------------------------------
+def trend_error(params):
+    a, b = params  # model parameters
+
+    preds = a * prices[:-1] + b
+    predicted_trend = np.sign(preds - prices[:-1])
+
+    # trend mismatch count (to minimize)
+    return np.mean(predicted_trend != actual_trend)
+
+
+# --- Helper Function: Keep bounds ---
+def clip_to_bounds(x, lb, ub):
+    return np.clip(x, lb, ub)
+
+
+# --- PCA Algorithm (unchanged except objective + bounds) ---
+def parallel_cellular_algorithm(
+    f, n_cells=50, dim=2, bounds=(np.array([0, -100]), np.array([2, 100])),
+    max_iter=100, neighborhood_size=4
+):
+    lb, ub = bounds
+    cells = np.random.uniform(lb, ub, (n_cells, dim))
+    fitness = np.array([f(c) for c in cells])
+
+    def get_neighbors(idx):
+        return [
+            (idx - 1) % n_cells,
+            (idx + 1) % n_cells
+        ]
+
+    for t in range(max_iter):
+
+        def update_cell(i):
+            neighbors = get_neighbors(i)
+            local_best_idx = min(neighbors + [i], key=lambda j: fitness[j])
+            local_best = cells[local_best_idx]
+
+            new_solution = cells[i] + np.random.uniform(-1, 1, dim) * (local_best - cells[i])
+            new_solution = clip_to_bounds(new_solution, lb, ub)
+            new_fit = f(new_solution)
+
+            return (new_solution if new_fit < fitness[i] else cells[i],
+                    min(new_fit, fitness[i]))
+
+        results = Parallel(n_jobs=-1)(delayed(update_cell)(i) for i in range(n_cells))
+        cells, fitness = zip(*results)
+        cells, fitness = np.array(cells), np.array(fitness)
+
+        best_idx = np.argmin(fitness)
+        if t % 10 == 0:
+            print(f"Iter {t:03d} | Trend Error = {fitness[best_idx]:.4f}")
+
+    best_idx = np.argmin(fitness)
+    return cells[best_idx], fitness[best_idx]
+
+
+# --- Run PCA on Stock Trend Prediction ---
+best_solution, best_error = parallel_cellular_algorithm(
+    trend_error, n_cells=50, dim=2, max_iter=200
+)
+
+a_opt, b_opt = best_solution
+
+print("\nOptimal Trend Model Parameters:")
+print("a =", a_opt)
+print("b =", b_opt)
+print("Trend Prediction Error =", best_error)
+
+# Predict next trend
+next_pred = a_opt * prices[-1] + b_opt
+next_trend = "UP" if next_pred > prices[-1] else "DOWN"
+
+print("\nPredicted Next Market Trend:", next_trend)
