@@ -1,0 +1,116 @@
+import numpy as np
+import pandas as pd
+from sklearn.model_selection import train_test_split
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.metrics import accuracy_score
+
+# -----------------------------
+# Load stock data (Replace with your CSV)
+# -----------------------------
+np.random.seed(42)
+days = 300
+prices = 100 + np.cumsum(np.random.randn(days))  # synthetic stock data
+
+df = pd.DataFrame({"price": prices})
+
+# -----------------------------
+# Create simple features
+# -----------------------------
+df["SMA"] = df["price"].rolling(5).mean()
+df["Momentum"] = df["price"].diff()
+df["Volatility"] = df["price"].rolling(5).std()
+df["Return"] = df["price"].pct_change()
+
+df["Trend"] = (df["price"].shift(-1) > df["price"]).astype(int)
+df.dropna(inplace=True)
+
+# Use features for ACO
+feature_matrix = df[["SMA", "Momentum", "Volatility", "Return"]].values
+target = df["Trend"].values
+num_features = feature_matrix.shape[1]
+
+# -----------------------------
+# ACO parameters (unchanged)
+# -----------------------------
+num_ants = 50
+num_iterations = 200
+pheromone_evaporation_rate = 0.5
+pheromone_deposit_factor = 1.0
+
+# Each feature has pheromone
+pheromone_trails = np.ones(num_features) * 0.1
+
+best_mask = None
+best_score = -1
+
+# -----------------------------
+# Fitness function: accuracy
+# -----------------------------
+def evaluate(mask):
+    if mask.sum() == 0:
+        return 0  # no features selected
+    
+    selected = feature_matrix[:, mask == 1]
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        selected, target, test_size=0.2, shuffle=False
+    )
+
+    model = KNeighborsClassifier()
+    model.fit(X_train, y_train)
+    preds = model.predict(X_test)
+    acc = accuracy_score(y_test, preds)
+
+    return acc
+
+# -----------------------------
+# ACO MAIN LOOP (structure unchanged)
+# -----------------------------
+for iteration in range(num_iterations):
+
+    all_masks = []
+    all_scores = []
+
+    for ant in range(num_ants):
+        # PROBABILITY of choosing each feature
+        probs = pheromone_trails / pheromone_trails.sum()
+
+        # ant constructs "tour" → here: feature subset
+        mask = np.array([1 if np.random.rand() < p else 0 for p in probs])
+
+        if mask.sum() == 0:
+            mask[np.random.randint(num_features)] = 1
+
+        score = evaluate(mask)
+
+        all_masks.append(mask)
+        all_scores.append(score)
+
+        # Track global best
+        if score > best_score:
+            best_score = score
+            best_mask = mask.copy()
+
+    # Pheromone evaporation
+    pheromone_trails *= (1 - pheromone_evaporation_rate)
+
+    # Deposit pheromone on selected features of good ants
+    for mask, score in zip(all_masks, all_scores):
+        pheromone_trails += mask * (score * pheromone_deposit_factor)
+
+    if (iteration + 1) % 50 == 0:
+        print(f"Iteration {iteration+1}/{num_iterations}, Best Accuracy: {best_score:.4f}")
+
+# -----------------------------
+# RESULTS
+# -----------------------------
+print("\nACO completed.")
+print("Best feature mask:", best_mask)
+print("Selected features:")
+
+features = ["SMA", "Momentum", "Volatility", "Return"]
+for i, f in enumerate(features):
+    if best_mask[i] == 1:
+        print("→", f)
+
+print("Best accuracy:", best_score)
