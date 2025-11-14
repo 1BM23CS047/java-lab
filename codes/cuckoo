@@ -1,0 +1,78 @@
+import numpy as np
+
+# --- Portfolio Data (example expected returns & covariance matrix) ---
+# Replace with your real stock data
+mu = np.array([0.12, 0.18, 0.15])                    # expected returns
+cov = np.array([[0.10, 0.02, 0.04],
+                [0.02, 0.15, 0.03],
+                [0.04, 0.03, 0.20]])                 # covariance matrix
+
+risk_aversion = 0.5  # λ : higher = prefers lower risk
+
+# --- Updated objective function for portfolio optimization ---
+def objective(weights):
+    weights = np.clip(weights, 0, 1)
+    weights = weights / np.sum(weights)              # ensure valid portfolio
+
+    portfolio_return = np.dot(weights, mu)
+    portfolio_risk = np.dot(weights.T, np.dot(cov, weights))
+
+    # Minimize (risk - λ * return)
+    return portfolio_risk - risk_aversion * portfolio_return
+
+
+# Levy flight (same)
+def levy_flight(Lambda):
+    u = np.random.randn() * 0.01
+    v = np.random.randn()
+    step = u / (abs(v)**(1/Lambda))
+    return step
+
+
+# Cuckoo Search (only minimal portfolio constraints added)
+def cuckoo_search(n=20, dim=3, lb=0, ub=1, pa=0.25, max_iter=200):
+    nests = np.random.uniform(lb, ub, (n, dim))
+
+    # Normalize initial portfolios
+    nests = nests / np.sum(nests, axis=1, keepdims=True)
+
+    fitness = np.array([objective(x) for x in nests])
+
+    for _ in range(max_iter):
+        cuckoo = nests[np.random.randint(n)] + levy_flight(1.5) * np.random.randn(dim)
+
+        # portfolio bounds & normalization
+        cuckoo = np.clip(cuckoo, lb, ub)
+        cuckoo = cuckoo / np.sum(cuckoo)
+
+        f_cuckoo = objective(cuckoo)
+
+        j = np.random.randint(n)
+        if f_cuckoo < fitness[j]:
+            nests[j] = cuckoo
+            fitness[j] = f_cuckoo
+
+        abandon = np.random.rand(n, dim) < pa
+        steps = np.random.randn(n, dim) * (nests[np.random.permutation(n)] - nests)
+
+        new_nests = nests + abandon * steps
+
+        # ensure valid portfolio constraints
+        new_nests = np.clip(new_nests, lb, ub)
+        new_nests = new_nests / np.sum(new_nests, axis=1, keepdims=True)
+
+        new_fitness = np.array([objective(x) for x in new_nests])
+
+        for i in range(n):
+            if new_fitness[i] < fitness[i]:
+                nests[i] = new_nests[i]
+                fitness[i] = new_fitness[i]
+
+    best_idx = np.argmin(fitness)
+    return nests[best_idx], fitness[best_idx]
+
+
+best_cs, fit_cs = cuckoo_search()
+print("Optimal Portfolio Weights:", best_cs)
+print("Fitness (risk - λ*return):", fit_cs)
+
