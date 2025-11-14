@@ -1,0 +1,114 @@
+import random, math
+import numpy as np
+
+# -----------------------
+# Example Stock Prices (Replace with real data later)
+# -----------------------
+prices = [120, 122, 121, 125, 128, 127, 130, 129]
+
+# -----------------------------------------
+# Fitness: Negative Mean Squared Error
+# Model: predicted_price = a * current_price + b
+# -----------------------------------------
+def fitness(chrom):
+    a, b = chrom
+    errors = []
+    for i in range(len(prices) - 1):
+        pred = a * prices[i] + b
+        errors.append((pred - prices[i+1]) ** 2)
+
+    mse = sum(errors) / len(errors)
+    return -mse    # GA maximizes fitness → minimize error
+
+# -----------------------
+# Initialize population: each chromosome = (a, b)
+# -----------------------
+def init_pop(size):
+    return [(random.uniform(-1, 1), random.uniform(-10, 10)) for _ in range(size)]
+
+# -----------------------
+# Roulette Wheel Selection
+# -----------------------
+def select(pop, fits):
+    min_fit = min(fits)
+    if min_fit < 0:
+        fits = [f - min_fit + 1e-6 for f in fits]
+
+    total = sum(fits)
+    r = random.uniform(0, total)
+    cum = 0
+    for p, f in zip(pop, fits):
+        cum += f
+        if cum >= r:
+            return p
+    return random.choice(pop)
+
+# -----------------------
+# Crossover: Blend two chromosomes
+# -----------------------
+def crossover(p1, p2, rate):
+    if random.random() < rate:
+        alpha = random.random()
+        c1 = (alpha*p1[0] + (1-alpha)*p2[0],
+              alpha*p1[1] + (1-alpha)*p2[1])
+        c2 = ((1-alpha)*p1[0] + alpha*p2[0],
+              (1-alpha)*p1[1] + alpha*p2[1])
+        return c1, c2
+    return p1, p2
+
+# -----------------------
+# Mutation
+# -----------------------
+def mutate(chrom, rate, sigma=0.1):
+    a, b = chrom
+    if random.random() < rate:
+        a += random.gauss(0, sigma)
+    if random.random() < rate:
+        b += random.gauss(0, sigma*5)
+    return (a, b)
+
+# -----------------------
+# Main GA
+# -----------------------
+def run():
+    POP = 10
+    CROSS, MUT = 0.8, 0.1
+    pop = init_pop(POP)
+    best, best_fit = None, float("-inf")
+    stall, max_stall = 0, 10
+    gen = 0
+
+    while stall < max_stall:
+        gen += 1
+        fits = [fitness(ch) for ch in pop]
+        gen_best_fit = max(fits)
+        gen_best = pop[fits.index(gen_best_fit)]
+
+        if gen_best_fit > best_fit:
+            best, best_fit = gen_best, gen_best_fit
+            stall = 0
+        else:
+            stall += 1
+
+        avg_fit = sum(fits) / len(fits)
+        print(f"Gen {gen}: BestFit = {best_fit:.6f}, Chromosome = {best}, AvgFit = {avg_fit:.6f}")
+
+        new_pop = []
+        while len(new_pop) < POP:
+            p1, p2 = select(pop, fits), select(pop, fits)
+            c1, c2 = crossover(p1, p2, CROSS)
+            new_pop += [mutate(c1, MUT), mutate(c2, MUT)]
+
+        pop = new_pop[:POP]
+
+    print("\nStopped after", gen, "generations.")
+    print(f"Best Model: a = {best[0]:.4f}, b = {best[1]:.4f}")
+    print("Best Fitness (−MSE):", best_fit)
+
+    # Predict next price
+    last_price = prices[-1]
+    predicted = best[0] * last_price + best[1]
+    print("\nPredicted Next-Day Price:", round(predicted, 3))
+
+if __name__ == "__main__":
+    run()
